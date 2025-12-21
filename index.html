@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ルーレットアプリ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap');
+    body { font-family: 'Noto Sans JP', sans-serif; }
+
+    .vertical-rl { writing-mode: vertical-rl; text-orientation: upright; }
+
+    .arrow-down{
+      width:0;height:0;
+      border-left:15px solid transparent;
+      border-right:15px solid transparent;
+      border-top:25px solid #dc2626;
+      filter: drop-shadow(0 4px 3px rgb(0 0 0 / 0.07));
+    }
+
+    .zoom-in { animation: zoomIn .3s ease-out forwards; }
+    @keyframes zoomIn { from{opacity:0;transform:scale(.9)} to{opacity:1;transform:scale(1)} }
+
+    #confetti-canvas{
+      position:fixed;
+      inset:0;
+      width:100vw;
+      height:100vh;
+      pointer-events:none;
+      z-index:60;
+    }
+
+    .toggle-on{ box-shadow:0 0 0 3px rgba(34,197,94,.35); }
+  </style>
+</head>
+
+<body
+  class="min-h-screen flex flex-col items-center justify-center p-4 text-gray-800 overflow-hidden relative"
+  style="
+    background:
+      radial-gradient(1200px 700px at 20% 10%, rgba(255,255,255,0.15), transparent 60%),
+      linear-gradient(135deg, #0b132b 0%, #1c2541 45%, #0b7a75 100%);
+  "
+>
+<canvas id="confetti-canvas"></canvas>
+
+<h1 class="text-3xl md:text-4xl font-bold text-white mb-8 drop-shadow-md tracking-wider">
+  ルーレット
+</h1>
+
+<div class="relative">
+  <div class="absolute -top-6 left-1/2 -translate-x-1/2 z-20">
+    <div class="arrow-down"></div>
+  </div>
+
+  <div class="relative w-[300px] h-[300px] md:w-[450px] md:h-[450px] rounded-full shadow-2xl border-4 border-white">
+    <div id="roulette-content"
+         class="w-full h-full rounded-full overflow-hidden relative"
+         style="transition:transform 8000ms cubic-bezier(0.1,0,0.1,1); transform: rotate(0deg);">
+    </div>
+
+    <div class="absolute top-1/2 left-1/2 w-4 h-4 bg-gray-900 rounded-full -translate-x-1/2 -translate-y-1/2 z-10"></div>
+
+    <div id="result-overlay" class="hidden absolute inset-0 flex items-center justify-center z-30">
+      <div class="bg-white/95 backdrop-blur-sm p-6 rounded-xl shadow-2xl text-center border-4 border-yellow-400 zoom-in">
+        <p class="text-gray-500 text-sm font-bold mb-1">RESULT</p>
+        <h2 id="result-text" class="text-4xl font-extrabold text-red-600 animate-pulse mb-4">WINNER</h2>
+        <button id="close-result-btn"
+          class="px-4 py-1 bg-gray-200 hover:bg-gray-300 rounded-full text-sm font-bold">
+          閉じる
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mt-10 flex flex-col items-center gap-4 z-10">
+  <button id="spin-btn"
+    class="flex items-center gap-2 px-8 py-4 rounded-full text-xl font-bold text-white shadow-lg
+           bg-gradient-to-r from-orange-500 to-red-500 hover:scale-105 active:scale-95 ring-4 ring-orange-300">
+    ▶ スタート
+  </button>
+
+  <button id="sound-toggle"
+    class="px-4 py-2 rounded-full bg-white text-green-700 font-extrabold shadow toggle-on">
+    🔊 サウンドON
+  </button>
+</div>
+
+<div class="mt-6 flex gap-3">
+  <button id="edit-btn" class="px-4 py-2 bg-white text-green-700 rounded-lg font-bold shadow hover:bg-green-50">
+    項目を編集
+  </button>
+  <button id="reset-btn" class="px-4 py-2 bg-green-900 text-white rounded-lg font-bold shadow hover:bg-green-950">
+    リセット
+  </button>
+</div>
+
+<!-- 編集モーダル -->
+<div id="editor-modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+  <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+    <div class="bg-gray-100 px-6 py-4 flex justify-between items-center border-b border-gray-200">
+      <h3 class="font-bold text-lg text-gray-700">ルーレット設定</h3>
+      <button id="close-editor-btn" class="text-gray-400 hover:text-gray-600" aria-label="閉じる">
+        ✕
+      </button>
+    </div>
+
+    <div class="p-6">
+      <label class="block text-sm font-bold text-gray-600 mb-2">項目リスト（1行に1つ）</label>
+      <textarea id="items-textarea"
+        class="w-full h-48 p-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all resize-none text-lg"
+        placeholder="例:&#13;&#10;あたり&#13;&#10;はずれ"></textarea>
+
+      <p id="items-count" class="text-xs text-gray-400 mt-2 text-right">現在の項目数: 0</p>
+      <p class="text-xs text-gray-500 mt-2">
+        ※空行は無視されます。項目は2つ以上必要です。
+      </p>
+    </div>
+
+    <div class="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-2">
+      <button id="cancel-items-btn" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg font-bold">
+        キャンセル
+      </button>
+      <button id="save-items-btn" class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold shadow-md">
+        保存して閉じる
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="fixed bottom-4 text-white/40 text-sm font-light">
+  Custom Roulette App
+</div>
+
+<script>
+/* =====================
+   UD配慮カラー
+===================== */
+const colors = [
+  '#56B4E9','#E69F00','#009E73','#F0E442',
+  '#0072B2','#D55E00','#CC79A7','#999999'
+];
+
+let items = ['イギリス','オランダ','アメリカ','カナダ','ドイツ','オーストラリア'];
+let rotation = 0;
+let isSpinning = false;
+
+/* DOM */
+const content = document.getElementById('roulette-content');
+const spinBtn = document.getElementById('spin-btn');
+const resetBtn = document.getElementById('reset-btn');
+
+const resultOverlay = document.getElementById('result-overlay');
+const resultText = document.getElementById('result-text');
+const closeResultBtn = document.getElementById('close-result-btn');
+
+const editBtn = document.getElementById('edit-btn');
+const editorModal = document.getElementById('editor-modal');
+const closeEditorBtn = document.getElementById('close-editor-btn');
+const cancelItemsBtn = document.getElementById('cancel-items-btn');
+const saveItemsBtn = document.getElementById('save-items-btn');
+const itemsTextarea = document.getElementById('items-textarea');
+const itemsCount = document.getElementById('items-count');
+
+const soundToggle = document.getElementById('sound-toggle');
+
+/* =====================
+   オーディオ（完全停止版）
+===================== */
+let soundEnabled = true;
+let audioCtx = null;
+
+let spinSessionId = 0;
+let spinNodes = null;
+
+function ensureAudio(){
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if(audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+}
+
+function hardStopNode(node){
+  if(!node) return;
+  try{ node.stop(0); }catch(e){}
+  try{ node.disconnect(); }catch(e){}
+}
+
+function stopSpinSound(){
+  spinSessionId++;
+
+  if(spinNodes){
+    const { src, wob, gain, filt, wobGain } = spinNodes;
+    try{
+      if(gain && audioCtx){
+        const now = audioCtx.currentTime;
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(0.00001, now);
+      }
+    }catch(e){}
+
+    hardStopNode(src);
+    hardStopNode(wob);
+    try{ gain && gain.disconnect(); }catch(e){}
+    try{ filt && filt.disconnect(); }catch(e){}
+    try{ wobGain && wobGain.disconnect(); }catch(e){}
+
+    spinNodes = null;
+  }
+}
+
+function startSpinSound(durationSec = 8.0){
+  if(!soundEnabled) return;
+  ensureAudio();
+  if(!audioCtx) return;
+
+  stopSpinSound();
+
+  const myId = ++spinSessionId;
+  const now = audioCtx.currentTime;
+
+  const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for(let i=0;i<data.length;i++) data[i] = (Math.random()*2 - 1) * 0.5;
+
+  const src = audioCtx.createBufferSource();
+  src.buffer = buffer;
+  src.loop = true;
+
+  const filt = audioCtx.createBiquadFilter();
+  filt.type = 'bandpass';
+  filt.Q.value = 0.9;
+
+  const gain = audioCtx.createGain();
+  gain.gain.setValueAtTime(0.00001, now);
+
+  const wob = audioCtx.createOscillator();
+  wob.type = 'sine';
+
+  const wobGain = audioCtx.createGain();
+  wobGain.gain.value = 0.05;
+
+  src.connect(filt).connect(gain).connect(audioCtx.destination);
+  wob.connect(wobGain).connect(gain.gain);
+
+  filt.frequency.setValueAtTime(1200, now);
+  filt.frequency.exponentialRampToValueAtTime(400, now + durationSec * 0.94);
+
+  gain.gain.exponentialRampToValueAtTime(0.12, now + 0.18);
+  gain.gain.exponentialRampToValueAtTime(0.00001, now + durationSec);
+
+  wob.frequency.setValueAtTime(18, now);
+  wob.frequency.exponentialRampToValueAtTime(3.5, now + durationSec * 0.94);
+
+  spinNodes = { src, wob, gain, filt, wobGain };
+
+  src.start(now);
+  wob.start(now);
+
+  setTimeout(()=>{
+    if(myId !== spinSessionId) return;
+    stopSpinSound();
+  }, Math.ceil(durationSec*1000) + 200);
+}
+
+function playDon(){
+  if(!soundEnabled) return;
+  ensureAudio();
+  if(!audioCtx) return;
+
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(120, now);
+  osc.frequency.exponentialRampToValueAtTime(80, now + 0.12);
+
+  g.gain.setValueAtTime(0.00001, now);
+  g.gain.exponentialRampToValueAtTime(0.35, now + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.00001, now + 0.22);
+
+  osc.connect(g).connect(audioCtx.destination);
+  osc.start(now);
+  osc.stop(now + 0.25);
+}
+
+function playChime(){
+  if(!soundEnabled) return;
+  ensureAudio();
+  if(!audioCtx) return;
+
+  const now = audioCtx.currentTime;
+  [1568,2093].forEach((f,i)=>{
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f, now + i*0.02);
+
+    g.gain.setValueAtTime(0.00001, now);
+    g.gain.exponentialRampToValueAtTime(0.25, now + 0.02 + i*0.02);
+    g.gain.exponentialRampToValueAtTime(0.00001, now + 0.55);
+
+    o.connect(g).connect(audioCtx.destination);
+    o.start(now + i*0.02);
+    o.stop(now + 0.65);
+  });
+}
+
+soundToggle.onclick = ()=>{
+  soundEnabled = !soundEnabled;
+  soundToggle.textContent = soundEnabled ? '🔊 サウンドON' : '🔇 サウンドOFF';
+  soundToggle.classList.toggle('toggle-on', soundEnabled);
+  ensureAudio();
+  if(!soundEnabled) stopSpinSound();
+};
+
+document.addEventListener('visibilitychange', ()=>{ if(document.hidden) stopSpinSound(); });
+window.addEventListener('beforeunload', ()=> stopSpinSound());
+
+/* =====================
+   紙吹雪（確実に消える版）
+===================== */
+const canvas = document.getElementById('confetti-canvas');
+const ctx = canvas.getContext('2d', { alpha:true });
+
+let confetti = [];
+let confettiRAF = 0;
+let confettiTimer = 0;
+
+function resize(){
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(innerWidth * dpr);
+  canvas.height = Math.floor(innerHeight * dpr);
+  canvas.style.width = '100vw';
+  canvas.style.height = '100vh';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize', resize);
+resize();
+
+function stopConfetti(){
+  confetti = [];
+  if(confettiRAF) cancelAnimationFrame(confettiRAF);
+  confettiRAF = 0;
+  if(confettiTimer) clearTimeout(confettiTimer);
+  confettiTimer = 0;
+  ctx.clearRect(0,0,innerWidth,innerHeight);
+}
+
+function launchConfetti(durationMs = 1600){
+  stopConfetti();
+
+  const W = innerWidth, H = innerHeight;
+  const count = Math.min(160, Math.max(90, Math.floor(W/6)));
+  const palette = ['#ffffff','#fde047','#fb7185','#60a5fa','#34d399','#a78bfa','#fbbf24','#fda4af'];
+
+  for(let i=0;i<count;i++){
+    confetti.push({
+      x: W/2 + (Math.random()*120 - 60),
+      y: H*0.22 + (Math.random()*40 - 20),
+      vx: (Math.random()*2 - 1) * (2.4 + Math.random()*2.0),
+      vy: - (3.8 + Math.random()*3.0),
+      g: 0.12 + Math.random()*0.14,
+      w: 6 + Math.random()*8,
+      h: 6 + Math.random()*12,
+      r: Math.random()*Math.PI,
+      vr: (Math.random()*2 - 1) * 0.18,
+      life: durationMs + Math.random()*400,
+      c: palette[i % palette.length]
+    });
+  }
+
+  const start = performance.now();
+
+  const tick = (t)=>{
+    const elapsed = t - start;
+
+    ctx.clearRect(0,0,W,H);
+
+    confetti.forEach(p=>{
+      p.vy += p.g;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.r += p.vr;
+      p.life -= 16;
+
+      ctx.save();
+      ctx.translate(p.x,p.y);
+      ctx.rotate(p.r);
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life/500));
+      ctx.fillStyle = p.c;
+      ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+      ctx.restore();
+    });
+
+    confetti = confetti.filter(p => p.life > 0 && p.y < H + 80);
+
+    if(elapsed < durationMs && confetti.length){
+      confettiRAF = requestAnimationFrame(tick);
+    }else{
+      stopConfetti();
+    }
+  };
+
+  confettiRAF = requestAnimationFrame(tick);
+  confettiTimer = setTimeout(stopConfetti, durationMs + 700);
+}
+
+/* =====================
+   ルーレット描画
+===================== */
+function render(){
+  content.innerHTML = '';
+  const n = items.length;
+  let grad = '';
+
+  items.forEach((it,i)=>{
+    grad += `${colors[i%colors.length]} ${(i/n)*100}% ${((i+1)/n)*100}%,`;
+
+    const d = document.createElement('div');
+    d.className = 'absolute top-0 left-1/2 h-1/2 origin-bottom flex justify-center items-start pt-4 pb-16';
+    d.style.transform = `translateX(-50%) rotate(${(360/n)*i+(180/n)}deg)`;
+
+    const fontSize = (n >= 24) ? 11 : (n >= 18) ? 12 : (n >= 14) ? 13 : (n >= 10) ? 14 : 18;
+
+    d.innerHTML = `
+      <span class="vertical-rl font-extrabold text-slate-900 drop-shadow-sm select-none whitespace-nowrap"
+            style="font-size:${fontSize}px; transform: rotate(180deg)">
+        ${it}
+      </span>`;
+    content.appendChild(d);
+  });
+
+  content.style.background = `conic-gradient(${grad.slice(0,-1)})`;
+}
+render();
+
+/* =====================
+   編集モーダル
+===================== */
+function updateCount(){
+  const count = itemsTextarea.value.split('\n').map(s=>s.trim()).filter(Boolean).length;
+  itemsCount.textContent = `現在の項目数: ${count}`;
+}
+
+function openEditor(){
+  if(isSpinning) return;
+  itemsTextarea.value = items.join('\n');
+  updateCount();
+  editorModal.classList.remove('hidden');
+  // 使いやすく：末尾へカーソル
+  setTimeout(()=>{
+    itemsTextarea.focus();
+    itemsTextarea.selectionStart = itemsTextarea.selectionEnd = itemsTextarea.value.length;
+  }, 0);
+}
+
+function closeEditor(){
+  editorModal.classList.add('hidden');
+}
+
+function saveItems(){
+  const newItems = itemsTextarea.value
+    .split('\n')
+    .map(s=>s.trim())
+    .filter(Boolean);
+
+  if(newItems.length < 2){
+    alert('項目は2つ以上必要です。');
+    return;
+  }
+
+  items = newItems;
+
+  // ルーレットをきれいにリセット
+  rotation = 0;
+  content.style.transition = 'none';
+  content.style.transform = 'rotate(0deg)';
+  setTimeout(()=>{
+    content.style.transition = 'transform 8000ms cubic-bezier(0.1,0,0.1,1)';
+  }, 50);
+
+  resultOverlay.classList.add('hidden');
+  stopConfetti();
+  stopSpinSound();
+  render();
+  closeEditor();
+}
+
+editBtn.addEventListener('click', openEditor);
+closeEditorBtn.addEventListener('click', closeEditor);
+cancelItemsBtn.addEventListener('click', closeEditor);
+saveItemsBtn.addEventListener('click', saveItems);
+itemsTextarea.addEventListener('input', updateCount);
+
+// 背景クリックで閉じる
+editorModal.addEventListener('click', (e)=>{
+  if(e.target === editorModal) closeEditor();
+});
+
+/* =====================
+   回転（勝者先決め）
+===================== */
+spinBtn.onclick = ()=>{
+  if(isSpinning || items.length < 2) return;
+
+  ensureAudio();
+  isSpinning = true;
+  resultOverlay.classList.add('hidden');
+
+  startSpinSound(8.0);
+
+  const winIndex = Math.floor(Math.random() * items.length);
+  const deg = 360 / items.length;
+  const targetRot = (360 - (winIndex*deg + deg/2)) % 360;
+
+  const current = ((rotation % 360) + 360) % 360;
+  let delta = (targetRot - current);
+  delta = ((delta % 360) + 360) % 360;
+
+  rotation = rotation + 2520 + delta;
+  content.style.transform = `rotate(${rotation}deg)`;
+
+  setTimeout(()=>{
+    isSpinning = false;
+    stopSpinSound();
+
+    playDon();
+    setTimeout(playChime, 90);
+
+    resultText.textContent = items[winIndex];
+    resultOverlay.classList.remove('hidden');
+
+    launchConfetti(1600);
+  }, 8000);
+};
+
+closeResultBtn.onclick = ()=> resultOverlay.classList.add('hidden');
+
+resetBtn.onclick = ()=>{
+  stopSpinSound();
+  stopConfetti();
+
+  rotation = 0;
+  content.style.transition = 'none';
+  content.style.transform = 'rotate(0deg)';
+  setTimeout(()=>{
+    content.style.transition = 'transform 8000ms cubic-bezier(0.1,0,0.1,1)';
+  }, 50);
+
+  resultOverlay.classList.add('hidden');
+};
+</script>
+</body>
+</html>
